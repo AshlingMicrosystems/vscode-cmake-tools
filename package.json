@@ -2,7 +2,7 @@
   "name": "cmake-tools",
   "displayName": "CMake Tools",
   "description": "Extended CMake support in Visual Studio Code",
-  "version": "1.13.0",
+  "version": "2.13.0",
   "publisher": "ms-vscode",
   "repository": {
     "type": "git",
@@ -149,6 +149,12 @@
         "title": "%cmake-tools.command.cmake.selectActiveFolder.title%",
         "when": "cmake:enableFullFeatureSet",
         "category": "CMake"
+      },
+      {
+        "command": "cmake.selectAshlingKit",
+        "title": "Select Ashling Kit",
+        "when": "cmake:enableFullFeatureSet",
+        "category": "AshlingCMake"
       },
       {
         "command": "cmake.projectStatus.selectActiveProject",
@@ -1848,7 +1854,7 @@
         },
         "cmake.preferredGenerators": {
           "type": "array",
-          "default": [],
+          "default": ["Unix Makefiles"],
           "description": "%cmake-tools.configuration.cmake.preferredGenerators.description%",
           "scope": "resource"
         },
@@ -2258,7 +2264,7 @@
         },
         "cmake.configureOnOpen": {
           "type": "boolean",
-          "default": null,
+          "default": false,
           "description": "%cmake-tools.configuration.cmake.configureOnOpen.description%",
           "scope": "resource"
         },

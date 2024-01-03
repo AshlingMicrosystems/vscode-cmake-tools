@@ -1151,6 +1151,87 @@ export async function scanForKits(cmakePath?: string, opt?: KitScanOptions) {
     return result.filter(kit => kit.isTrusted);
 }
 
+//TODO DRY violation, see extension.ts, move to utility file
+export function getBinaryInstallationPath() {
+    let installationPath = vscode.workspace.getConfiguration('ashling').get<string>('installationPath');
+    if (!installationPath) {
+        throw new Error("Installation path is not configured.");
+    }
+    if (installationPath.startsWith('$')) {
+        installationPath = process.env[installationPath.substring(1)];
+    }
+    if (!installationPath) {
+        throw new Error("Installation path is not configured or resolved.");
+    }
+    return installationPath;
+}
+
+/**
+ * Search for Kits available on the platform.
+ * @returns A list of Kits.
+ */
+export async function scanAshlingKits() {
+    log.debug(localize('scanning.for.kits.on.system', 'Scanning for Ashling Kits on system'));
+    const prog = {
+        location: vscode.ProgressLocation.Notification,
+        title: localize('scanning.for.kits', 'Scanning for Ashling kits')
+    };
+
+    const untrusted_paths = new Set<string>();
+
+    const result = await vscode.window.withProgress(prog, async pr => {
+        pr.report({ message: localize('scanning.for.cmake.kits', 'Scanning for CMake kits...') });
+
+        // Maps paths to booleans indicating if the path is trusted.
+        const scan_paths = new Map<string, boolean>();
+        function addScanPath(path: string, trusted: boolean, paths?: Map<string, boolean>) {
+            const normalizedPath = util.lightNormalizePath(path);
+            const map = paths ?? scan_paths;
+            map.set(normalizedPath, map.get(normalizedPath) || trusted);
+        }
+        addScanPath(path.join(getBinaryInstallationPath(), 'toolchain', 'riscv32-unknown-elf', 'bin'), true);
+
+        // Search them all in parallel
+        let kit_promises = [] as Promise<Kit[]>[];
+
+        const compiler_kits = Array.from(scan_paths).map(path_el => scanDirForCompilerKits(path_el[0], path_el[1], pr));
+        kit_promises = kit_promises.concat(compiler_kits);
+
+        const arrays = await Promise.all(kit_promises);
+        const kits = ([] as Kit[]).concat(...arrays);
+        kits.map(k => log.info(localize(
+            'found.kit',
+            'Found Kit ({0}): {1}',
+            k.isTrusted ? localize('trusted', 'trusted') : localize('untrusted', 'untrusted'),
+            k.name)));
+
+        scan_paths.forEach((isTrusted, path) => !isTrusted ? untrusted_paths.add(path) : undefined);
+
+        return kits;
+    });
+
+    const untrustedKits = result.filter(kit => !kit.isTrusted);
+    if (untrustedKits.length > 0) {
+        void vscode.window.showWarningMessage<{ action: 'yes' | 'no'; title: string }>(
+            localize(
+                'untrusted.kits.found',
+                'Compiler kits may be present in these directories: {0}. Would you like to scan and execute potential compilers in these directories by adding them to "cmake.additionalCompilerSearchDirs"?',
+                Array.from(untrusted_paths).toString()),
+            { action: 'yes', title: localize('yes', 'Yes') },
+            { action: 'no', title: localize('no', 'No') }).then(async action => {
+            if (action?.action === 'yes') {
+                const settings = vscode.workspace.getConfiguration('cmake');
+                const additionalCompilerSearchDirs = settings.get<string[]>('additionalCompilerSearchDirs', []);
+                additionalCompilerSearchDirs.push(...Array.from(untrusted_paths));
+                await settings.update('additionalCompilerSearchDirs', additionalCompilerSearchDirs, vscode.ConfigurationTarget.Global);
+                await vscode.commands.executeCommand('cmake.scanForKits');
+            }
+        });
+    }
+
+    return result.filter(kit => kit.isTrusted);
+}
+
 // Rescan if the kits versions (extension context state var versus value defined for this release) don't match.
 export async function scanForKitsIfNeeded(project: CMakeProject): Promise<boolean> {
     const kitsVersionSaved = project.workspaceContext.state.extensionContext.globalState.get<number>('kitsVersionSaved');
