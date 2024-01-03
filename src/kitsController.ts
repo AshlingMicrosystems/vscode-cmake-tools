@@ -16,7 +16,8 @@ import {
     OLD_USER_KITS_FILEPATH,
     SpecialKits,
     SpecialKitsCount,
-    getAdditionalKits
+    getAdditionalKits,
+    scanAshlingKits
 } from '@cmt/kit';
 import * as logging from '@cmt/logging';
 import paths from '@cmt/paths';
@@ -492,6 +493,75 @@ export class KitsController {
 
         // Do the scan:
         const discovered_kits = await scanForKits(cmakePath, { scanDirs: KitsController.additionalCompilerSearchDirs });
+
+        // The list with the new definition user kits starts with the non VS ones,
+        // which do not have any variations in the way they can be defined.
+        const new_definition_user_kits = KitsController.userKits.filter(kit => !!!kit.visualStudio);
+
+        // The VS kits saved so far in cmake-tools-kits.json
+        const user_vs_kits = KitsController.userKits.filter(kit => !!kit.visualStudio);
+
+        // Separate the VS kits based on old/new definition.
+        const old_definition_vs_kits = [];
+        user_vs_kits.forEach(kit => {
+            if (kit.visualStudio && (kit.visualStudio.startsWith("VisualStudio.15") || kit.visualStudio.startsWith("VisualStudio.16"))) {
+                old_definition_vs_kits.push(kit);
+            } else {
+                // The new definition VS kits can complete the final user kits list
+                new_definition_user_kits.push(kit);
+            }
+        });
+
+        let duplicateRemoved: boolean = false;
+        if (old_definition_vs_kits.length > 1) {
+            log.info(localize('found.duplicate.kits', 'Found Visual Studio kits with the old ids saved in the cmake-tools-kits.json.'));
+            const yesButtonTitle: string = localize('yes.button', 'Yes');
+            const chosen = await vscode.window.showInformationMessage<vscode.MessageItem>(
+                localize('delete.duplicate.kits', 'Would you like to delete the duplicate Visual Studio kits from cmake-tools-kits.json?'),
+                {
+                    title: yesButtonTitle,
+                    isCloseAffordance: true
+                },
+                {
+                    title: localize('no.button', 'No'),
+                    isCloseAffordance: true
+                });
+
+            if (chosen !== undefined && (chosen.title === yesButtonTitle)) {
+                KitsController.userKits = new_definition_user_kits;
+                duplicateRemoved = true;
+            }
+        }
+
+        // Convert the kits into a by-name mapping so that we can restore the ones
+        // we know about after the fact.
+        // We only save the user-local kits: We don't want to save workspace kits
+        // in the user kits file.
+        const old_kits_by_name = KitsController.userKits.reduce(
+            (acc, kit) => ({ ...acc, [kit.name]: kit }),
+            {} as { [kit: string]: Kit }
+        );
+
+        // Update the new kits we know about.
+        const new_kits_by_name = discovered_kits.reduce(
+            (acc, kit) => KitsController.isBetterMatch(kit, acc[kit.name]) ? { ...acc, [kit.name]: kit } : acc,
+            old_kits_by_name
+        );
+
+        const new_kits = Object.keys(new_kits_by_name).map(k => new_kits_by_name[k]);
+        KitsController.userKits = new_kits;
+        await KitsController._writeUserKitsFile(cmakePath, new_kits);
+
+        KitsController._startPruneOutdatedKitsAsync(cmakePath);
+
+        return duplicateRemoved;
+    }
+
+    static async scanForAshlingKits(cmakePath: string) {
+        log.debug(localize('rescanning.for.kits', 'Rescanning for kits'));
+
+        // Do the scan:
+        const discovered_kits = await scanAshlingKits();
 
         // The list with the new definition user kits starts with the non VS ones,
         // which do not have any variations in the way they can be defined.

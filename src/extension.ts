@@ -11,16 +11,19 @@ import * as vscode from 'vscode';
 import * as cpt from 'vscode-cpptools';
 import * as nls from 'vscode-nls';
 import * as api from 'vscode-cmake-tools';
+import * as FS from 'fs';
 import { CMakeCache } from '@cmt/cache';
 import { CMakeProject, ConfigureType, ConfigureTrigger, DiagnosticsConfiguration, DiagnosticsSettings } from '@cmt/cmakeProject';
 import { ConfigurationReader, getSettingsChangePromise, TouchBarConfig } from '@cmt/config';
 import { CppConfigurationProvider, DiagnosticsCpptools } from '@cmt/cpptools';
-import { ProjectController, FolderProjectType} from '@cmt/projectController';
+import { ProjectController, FolderProjectType } from '@cmt/projectController';
+
 
 import {
     USER_KITS_FILEPATH,
     findCLCompilerPath,
-    scanForKitsIfNeeded
+    scanForKitsIfNeeded,
+    scanAshlingKits
 } from '@cmt/kit';
 import { KitsController } from '@cmt/kitsController';
 import * as logging from '@cmt/logging';
@@ -304,7 +307,7 @@ export class ExtensionManager implements vscode.Disposable {
     private cppToolsAPI?: cpt.CppToolsApi;
     private configProviderRegistered?: boolean = false;
 
-    private getProjectsForWorkspaceFolder(folder?: vscode.WorkspaceFolder): CMakeProject[]  | undefined {
+    private getProjectsForWorkspaceFolder(folder?: vscode.WorkspaceFolder): CMakeProject[] | undefined {
         folder = this.getWorkspaceFolder(folder);
         return this.projectController.getProjectsForWorkspaceFolder(folder);
     }
@@ -1099,7 +1102,7 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     cleanConfigureWithDebugger(folder?: vscode.WorkspaceFolder) {
-        return this.cleanConfigureWithDebuggerInternal({pipeName: getDebuggerPipeName()}, folder);
+        return this.cleanConfigureWithDebuggerInternal({ pipeName: getDebuggerPipeName() }, folder);
     }
 
     cleanConfigureWithDebuggerInternal(debuggerInformation: DebuggerInformation, folder?: vscode.WorkspaceFolder) {
@@ -1113,7 +1116,7 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     cleanConfigureAllWithDebugger(trigger?: ConfigureTrigger) {
-        return this.cleanConfigureAllWithDebuggerInternal({pipeName: getDebuggerPipeName()}, trigger);
+        return this.cleanConfigureAllWithDebuggerInternal({ pipeName: getDebuggerPipeName() }, trigger);
     }
 
     cleanConfigureAllWithDebuggerInternal(debuggerInformation: DebuggerInformation, trigger?: ConfigureTrigger) {
@@ -1122,18 +1125,18 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     configure(folder?: vscode.WorkspaceFolder, showCommandOnly?: boolean, sourceDir?: string) {
-        telemetry.logEvent("configure", { all: "false", debug: "false"});
+        telemetry.logEvent("configure", { all: "false", debug: "false" });
         return this.runCMakeCommand(
             cmakeProject => cmakeProject.configureInternal(ConfigureTrigger.commandConfigure, [], showCommandOnly ? ConfigureType.ShowCommandOnly : ConfigureType.Normal),
             folder, undefined, true, sourceDir);
     }
 
     configureWithDebugger(folder?: vscode.WorkspaceFolder, sourceDir?: string, trigger?: ConfigureTrigger) {
-        return this.configureWithDebuggerInternal({pipeName: getDebuggerPipeName()}, folder, undefined, sourceDir, trigger);
+        return this.configureWithDebuggerInternal({ pipeName: getDebuggerPipeName() }, folder, undefined, sourceDir, trigger);
     }
 
     configureWithDebuggerInternal(debuggerInformation: DebuggerInformation, folder?: vscode.WorkspaceFolder, showCommandOnly?: boolean, sourceDir?: string, trigger?: ConfigureTrigger) {
-        telemetry.logEvent("configure", { all: "false", debug: "true"});
+        telemetry.logEvent("configure", { all: "false", debug: "true" });
         return this.runCMakeCommand(
             cmakeProject => cmakeProject.configureInternal(trigger ?? ConfigureTrigger.commandConfigureWithDebugger, [], showCommandOnly ? ConfigureType.ShowCommandOnly : ConfigureType.NormalWithDebugger, debuggerInformation),
             folder, undefined, true, sourceDir);
@@ -1144,17 +1147,17 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     configureAll() {
-        telemetry.logEvent("configure", { all: "true", debug: "false"});
+        telemetry.logEvent("configure", { all: "true", debug: "false" });
         return this.runCMakeCommandForAll(cmakeProject => cmakeProject.configureInternal(ConfigureTrigger.commandCleanConfigureAll, [], ConfigureType.Normal), undefined, true);
     }
 
     configureAllWithDebugger(trigger?: ConfigureTrigger) {
-        return this.configureAllWithDebuggerInternal({pipeName: getDebuggerPipeName()}, trigger);
+        return this.configureAllWithDebuggerInternal({ pipeName: getDebuggerPipeName() }, trigger);
     }
 
     configureAllWithDebuggerInternal(debuggerInformation: DebuggerInformation, trigger?: ConfigureTrigger) {
         // I need to add ConfigureTriggers that account for coming from the project status view or project outline.
-        telemetry.logEvent("configure", { all: "true", debug: "true"});
+        telemetry.logEvent("configure", { all: "true", debug: "true" });
         return this.runCMakeCommandForAll(cmakeProject => cmakeProject.configureInternal(trigger ?? ConfigureTrigger.commandConfigureAllWithDebugger, [], ConfigureType.NormalWithDebugger, debuggerInformation), undefined, true);
     }
 
@@ -1164,15 +1167,15 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     build(folder?: vscode.WorkspaceFolder, name?: string, sourceDir?: string, showCommandOnly?: boolean, isBuildCommand?: boolean) {
-        telemetry.logEvent("build", { all: "false"});
+        telemetry.logEvent("build", { all: "false" });
         return this.runCMakeCommand(cmakeProject => {
             const targets = name ? [name] : undefined;
             return cmakeProject.build(targets, showCommandOnly, (isBuildCommand === undefined) ? true : isBuildCommand);
         },
-        folder,
-        this.ensureActiveBuildPreset,
-        true,
-        sourceDir);
+            folder,
+            this.ensureActiveBuildPreset,
+            true,
+            sourceDir);
     }
 
     showBuildCommand(folder?: vscode.WorkspaceFolder, name?: string) {
@@ -1180,13 +1183,13 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     buildAll(name?: string | string[]) {
-        telemetry.logEvent("build", { all: "true"});
+        telemetry.logEvent("build", { all: "true" });
         return this.runCMakeCommandForAll(cmakeProject => {
             const targets = util.isArrayOfString(name) ? name : util.isString(name) ? [name] : undefined;
             return cmakeProject.build(targets);
         },
-        this.ensureActiveBuildPreset,
-        true);
+            this.ensureActiveBuildPreset,
+            true);
     }
 
     setDefaultTarget(folder?: vscode.WorkspaceFolder, name?: string, sourceDir?: string) {
@@ -1215,12 +1218,12 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     install(folder?: vscode.WorkspaceFolder) {
-        telemetry.logEvent("install", { all: "false"});
+        telemetry.logEvent("install", { all: "false" });
         return this.runCMakeCommand(cmakeProject => cmakeProject.install(), folder, undefined, true);
     }
 
     installAll() {
-        telemetry.logEvent("install", { all: "true"});
+        telemetry.logEvent("install", { all: "true" });
         return this.runCMakeCommandForAll(cmakeProject => cmakeProject.install(), undefined, true);
     }
 
@@ -1230,27 +1233,27 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     clean(folder?: vscode.WorkspaceFolder) {
-        telemetry.logEvent("clean", { all: "false"});
+        telemetry.logEvent("clean", { all: "false" });
         return this.build(folder, 'clean', undefined, undefined, false);
     }
 
     cleanAll() {
-        telemetry.logEvent("clean", { all: "true"});
+        telemetry.logEvent("clean", { all: "true" });
         return this.buildAll(['clean']);
     }
 
     cleanRebuild(folder?: vscode.WorkspaceFolder) {
-        telemetry.logEvent("cleanRebuild", { all: "false"});
+        telemetry.logEvent("cleanRebuild", { all: "false" });
         return this.runCMakeCommand(cmakeProject => cmakeProject.cleanRebuild(), folder, this.ensureActiveBuildPreset, true);
     }
 
     cleanRebuildAll() {
-        telemetry.logEvent("cleanRebuild", { all: "true"});
+        telemetry.logEvent("cleanRebuild", { all: "true" });
         return this.runCMakeCommandForAll(cmakeProject => cmakeProject.cleanRebuild(), this.ensureActiveBuildPreset, true);
     }
 
     async buildWithTarget() {
-        telemetry.logEvent("build", { command: "buildWithTarget", all: "false"});
+        telemetry.logEvent("build", { command: "buildWithTarget", all: "false" });
         this.cleanOutputChannel();
         let activeProject: CMakeProject | undefined = this.getActiveProject();
         if (!activeProject) {
@@ -1320,12 +1323,12 @@ export class ExtensionManager implements vscode.Disposable {
     }
 
     ctest(folder?: vscode.WorkspaceFolder) {
-        telemetry.logEvent("runTests", { all: "false"});
+        telemetry.logEvent("runTests", { all: "false" });
         return this.runCMakeCommand(cmakeProject => cmakeProject.ctest(), folder, this.ensureActiveTestPreset);
     }
 
     ctestAll() {
-        telemetry.logEvent("runTests", { all: "true"});
+        telemetry.logEvent("runTests", { all: "true" });
         return this.runCMakeCommandForAll(cmakeProject => cmakeProject.ctest(), this.ensureActiveTestPreset);
     }
 
@@ -1354,7 +1357,7 @@ export class ExtensionManager implements vscode.Disposable {
         return this.runCMakeCommandForProject(cmakeProject => cmakeProject.quickStart(folder));
     }
 
-    resolveFolderTargetNameArgs(args?: FolderTargetNameArgsType): [ folder?: vscode.WorkspaceFolder | string, targetName?: string ] {
+    resolveFolderTargetNameArgs(args?: FolderTargetNameArgsType): [folder?: vscode.WorkspaceFolder | string, targetName?: string] {
         let folder: vscode.WorkspaceFolder | string | undefined;
         let targetName: string | undefined;
 
@@ -1369,7 +1372,7 @@ export class ExtensionManager implements vscode.Disposable {
             targetName = args.targetName;
         }
 
-        return [ folder, targetName ];
+        return [folder, targetName];
     }
 
     launchTargetPath(args?: FolderTargetNameArgsType) {
@@ -1936,7 +1939,7 @@ async function setup(context: vscode.ExtensionContext, progress?: ProgressHandle
         vscode.commands.registerCommand('cmake.outline.editCacheUI', () => runCommand('editCacheUI')),
         vscode.commands.registerCommand('cmake.outline.cleanRebuildAll', () => runCommand('cleanRebuildAll')),
         // Commands for outline items
-        vscode.commands.registerCommand('cmake.outline.configure', async (what: ProjectNode|SourceFileNode) => {
+        vscode.commands.registerCommand('cmake.outline.configure', async (what: ProjectNode | SourceFileNode) => {
             if (what instanceof ProjectNode) {
                 await runCommand('configure', what.folder, false, what.sourceDirectory);
             } else if (what instanceof SourceFileNode) {
@@ -1959,7 +1962,7 @@ async function setup(context: vscode.ExtensionContext, progress?: ProgressHandle
         // vscode.commands.registerCommand('cmake.outline.selectWorkspace', (what: WorkspaceFolderNode) => runCommand('selectWorkspace', what.wsFolder))
         vscode.commands.registerCommand('cmake.outline.selectWorkspace', (what: WorkspaceFolderNode) => runCommand('selectWorkspace', what.wsFolder)),
         // Notification of active project change (e.g. when cmake.sourceDirectory changes)
-        vscode.commands.registerCommand('cmake.statusbar.update', () => extensionManager?.updateStatusBarForActiveProjectChange())
+        vscode.commands.registerCommand('cmake.statusbar.update', () => extensionManager?.updateStatusBarForActiveProjectChange()),
     ]);
 
     return { getApi: (_version) => ext.api };
@@ -1988,6 +1991,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<api.CM
     // CMakeTools versions newer or equal to #1.2 should not coexist with older versions
     // because the publisher changed (from vector-of-bool into ms-vscode),
     // causing many undesired behaviors (duplicate operations, registrations for UI elements, etc...)
+    updateEnvironment();
     const oldCMakeToolsExtension = vscode.extensions.getExtension('vector-of-bool.cmake-tools');
     if (oldCMakeToolsExtension) {
         await vscode.window.showWarningMessage(localize('uninstall.old.cmaketools', 'Please uninstall any older versions of the CMake Tools extension. It is now published by Microsoft starting with version 1.2.0.'));
@@ -2008,6 +2012,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<api.CM
             }
         });
     }
+
+    //This command is not added in package.json so that it won't be visible in command palette.
+    vscode.commands.registerCommand('cmake.selectActiveFolderWithInput', async (folder: string[]) => {
+        void extensionManager?.selectActiveFolder(folder);
+    });
+
+    vscode.commands.registerCommand('cmake.selectAshlingKit', async () => {
+        const activeProject = extensionManager?.getActiveProject();
+        const discovered_kits = await scanAshlingKits();
+        await activeProject?.setKit(discovered_kits.filter(kit => kit.name.includes('riscv'))[0]);
+    });
 
     // Start with a partial feature set view. The first valid CMake project will cause a switch to full feature set.
     await enableFullFeatureSet(false);
@@ -2068,4 +2083,109 @@ export function getStatusBar(): StatusBar | undefined {
     if (extensionManager) {
         return extensionManager.getStatusBar();
     }
+}
+
+async function updateAshlingPreferenceToDefault() {
+    const settingToUpdate = 'installationPath';
+    const newValue = '$ASHLING_BINARY_LOCATION';
+    await vscode.workspace.getConfiguration('ashling').update(settingToUpdate, newValue, vscode.ConfigurationTarget.Global);
+}
+
+export function getBinaryInstallationPath() {
+    //TODO : As of now we are not depending on preference value, purely depending on ASHLING_BINARY_LOCATION environment variable. Need to fix cloud-ide#104
+    let installationPath: string | undefined  = '$ASHLING_BINARY_LOCATION';
+    if (!installationPath) {
+        throw new Error("Installation path is not configured.");
+    }
+    if (installationPath.startsWith('$')) {
+        installationPath = process.env[installationPath.substring(1)];
+    }
+    if (!installationPath) {
+        throw new Error("Installation path is not configured or resolved.");
+    }
+    return installationPath;
+}
+
+function updateEnvironment() {
+    try {
+        //TODO :Updating preference to ASHLING_BINARY_LOCATION . Need to fix cloud-ide#104
+        updateAshlingPreferenceToDefault().catch((error) => {
+            console.error('Error updating setting:', error);
+        });
+        const installationPath = getBinaryInstallationPath();
+        const makePath = path.join(installationPath, 'build_tools', 'bin');
+        const cmakePath = path.join(installationPath, 'build_tools', 'cmake', 'bin');
+        const riscvToolchainPath = path.join(installationPath, 'toolchain', 'riscv32-unknown-elf', 'bin');
+        const armToolchainPath = path.join(installationPath, 'toolchain', 'Arm', 'aarch64-none-elf', 'bin');
+        const armLinuxToolchainPath = path.join(installationPath, 'toolchain', 'Arm', 'aarch64-none-linux-gnu', 'bin');
+        const quartusRoot = resolveEnvironmentVariableToPath('QUARTUS_ROOTDIR');
+        let niosvStackReport = '';
+        if (quartusRoot) {
+            niosvStackReport = path.join(quartusRoot, '..', 'niosv', 'bin');
+        }
+        //Not sure this path exists, no need to stop anything fo this
+        let quartusRootPathtoAdd = [niosvStackReport];
+        if (quartusRoot && !checkPaths(quartusRootPathtoAdd)) {
+            niosvStackReport = path.join(quartusRoot, '..', '..', 'niosv', 'bin');
+            quartusRootPathtoAdd = [niosvStackReport];
+        }
+        //TODO : Double check in one case, can be removed.
+        if (!checkPaths(quartusRootPathtoAdd)) {
+            // Inform the user about the environment variable change
+            void vscode.window.showWarningMessage('Failed to resolve niosv-stack-report utility path, $QUARTUS_ROOTDIR../niosv/bin does not exist.');
+            //Let's continue with a warning
+        } else {
+            // Modify the PATH environment variable
+            process.env.PATH = process.env.PATH + getPathSeparator() + quartusRootPathtoAdd.join(getPathSeparator());
+        }
+
+        // Define the paths you want to add to the PATH environment variable
+        const pathsToAdd = [
+            makePath,
+            cmakePath,
+            riscvToolchainPath,
+            armToolchainPath,
+            armLinuxToolchainPath
+        ];
+
+        if (!checkPaths(pathsToAdd)) {
+            // Inform the user about the environment variable change
+            void vscode.window.showInformationMessage('Failed to add toolchain & debugger path to PATH environment variable. Some of the paths are missing.');
+            return;
+        }
+        // Modify the PATH environment variable
+        process.env.PATH = process.env.PATH + getPathSeparator() + pathsToAdd.join(getPathSeparator());
+    } catch (error: any) {
+        console.error('Error:', error);
+    }
+}
+
+function getPathSeparator(): string {
+    // Check the platform and return the appropriate path separator
+    return process.platform === 'win32' ? ';' : ':';
+}
+
+function checkPaths(pathsToCheck: any) {
+    for (const path of pathsToCheck) {
+        try {
+            FS.accessSync(path, fs.constants.F_OK);
+        } catch (err) {
+            console.error(`Path ${path} does not exist`);
+            return false; // Return false if any path doesn't exist
+        }
+    }
+    return true; // Return true if all paths exist
+}
+
+function resolveEnvironmentVariableToPath(envVariable: string): string | undefined {
+    // Check if the environment variable is defined
+    const variableValue = process.env[envVariable];
+    if (!variableValue) {
+        console.error(`Environment variable ${envVariable} is not defined.`);
+        return undefined;
+    }
+
+    // Resolve the environment variable value to a full path
+    const resolvedPath = path.resolve(variableValue);
+    return resolvedPath;
 }
