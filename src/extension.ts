@@ -2179,7 +2179,6 @@ function checkPaths(pathsToCheck: any) {
         try {
             FS.accessSync(path, fs.constants.F_OK);
         } catch (err) {
-            vscode.window.showInformationMessage(`Path ${path} does not exist`);
             return false; // Return false if any path doesn't exist
         }
     }
