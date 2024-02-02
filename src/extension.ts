@@ -2091,14 +2091,23 @@ async function updateAshlingPreferenceToDefault() {
     await vscode.workspace.getConfiguration('ashling').update(settingToUpdate, newValue, vscode.ConfigurationTarget.Global);
 }
 
-export function getBinaryInstallationPath() {
+
+export async function getBinaryInstallationPath() {
     //TODO : As of now we are not depending on preference value, purely depending on ASHLING_BINARY_LOCATION environment variable. Need to fix cloud-ide#104
-    let installationPath: string | undefined  = '$ASHLING_BINARY_LOCATION';
+    let installationPath: string | undefined = '$ASHLING_BINARY_LOCATION';
     if (!installationPath) {
         throw new Error("Installation path is not configured.");
     }
     if (installationPath.startsWith('$')) {
-        installationPath = process.env[installationPath.substring(1)];
+        // Access the vscode.env API
+        const env = vscode.env;
+        if (env.remoteName === 'wsl') {
+            const resolvedValue = await getWSLEnvironmentVariable(installationPath.substring(1));
+            return resolvedValue;
+        }
+        else {
+            installationPath = process.env[installationPath.substring(1)];
+        }
     }
     if (!installationPath) {
         throw new Error("Installation path is not configured or resolved.");
@@ -2106,13 +2115,14 @@ export function getBinaryInstallationPath() {
     return installationPath;
 }
 
-function updateEnvironment() {
+async function updateEnvironment() {
     try {
         //TODO :Updating preference to ASHLING_BINARY_LOCATION . Need to fix cloud-ide#104
         updateAshlingPreferenceToDefault().catch((error) => {
-            console.error('Error updating setting:', error);
+            log.error('Error updating setting:', error);
         });
-        const installationPath = getBinaryInstallationPath();
+        const installationPath = await getBinaryInstallationPath();
+        vscode.window.showInformationMessage(`installationPath is ${installationPath}`);
         const makePath = path.join(installationPath, 'build_tools', 'bin');
         const cmakePath = path.join(installationPath, 'build_tools', 'cmake', 'bin');
         const riscvToolchainPath = path.join(installationPath, 'toolchain', 'riscv32-unknown-elf', 'bin');
@@ -2156,7 +2166,7 @@ function updateEnvironment() {
         // Modify the PATH environment variable
         process.env.PATH = process.env.PATH + getPathSeparator() + pathsToAdd.join(getPathSeparator());
     } catch (error: any) {
-        console.error('Error:', error);
+        log.error('Error:', error);
     }
 }
 
@@ -2170,7 +2180,7 @@ function checkPaths(pathsToCheck: any) {
         try {
             FS.accessSync(path, fs.constants.F_OK);
         } catch (err) {
-            console.error(`Path ${path} does not exist`);
+            vscode.window.showInformationMessage(`Path ${path} does not exist`);
             return false; // Return false if any path doesn't exist
         }
     }
@@ -2181,11 +2191,24 @@ function resolveEnvironmentVariableToPath(envVariable: string): string | undefin
     // Check if the environment variable is defined
     const variableValue = process.env[envVariable];
     if (!variableValue) {
-        console.error(`Environment variable ${envVariable} is not defined.`);
+        log.error(`Environment variable ${envVariable} is not defined.`);
         return undefined;
     }
 
     // Resolve the environment variable value to a full path
     const resolvedPath = path.resolve(variableValue);
     return resolvedPath;
+}
+
+const utilvsc = require('util');
+const exec = utilvsc.promisify(require('child_process').exec);
+
+async function getWSLEnvironmentVariable(variableName: string): Promise<string> {
+    try {
+        const { stdout } = await exec(`echo $${variableName}`);
+        return stdout.trim();
+    } catch (error: any) {
+        log.error(`Error resolving WSL environment variable: ${error.message}`);
+        return '';
+    }
 }

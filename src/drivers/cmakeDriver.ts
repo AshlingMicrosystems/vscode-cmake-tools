@@ -1662,7 +1662,9 @@ export abstract class CMakeDriver implements vscode.Disposable {
         if (!await fs.exists(cmake_list)) {
             log.debug(localize('not.configuring', 'Not configuring: There is no {0}', cmake_list));
             await this.preconditionHandler(CMakePreconditionProblems.MissingCMakeListsFile, this.config);
-            return false;
+            //ASHLING-PATCH - We are blindly returning true expecting preconditionhandler resolves the issues
+            //TODO : This is a temp fix for riscfree/cloud-ide/-/issues/117, need to see what cmake-tools fix coming.
+            return true;
         }
 
         return true;
