@@ -2122,7 +2122,6 @@ async function updateEnvironment() {
             log.error('Error updating setting:', error);
         });
         const installationPath = await getBinaryInstallationPath();
-        vscode.window.showInformationMessage(`installationPath is ${installationPath}`);
         const makePath = path.join(installationPath, 'build_tools', 'bin');
         const cmakePath = path.join(installationPath, 'build_tools', 'cmake', 'bin');
         const riscvToolchainPath = path.join(installationPath, 'toolchain', 'riscv32-unknown-elf', 'bin');
