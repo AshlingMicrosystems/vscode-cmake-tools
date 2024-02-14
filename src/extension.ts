@@ -2141,7 +2141,7 @@ async function updateEnvironment() {
         //TODO : Double check in one case, can be removed.
         if (!checkPaths(quartusRootPathtoAdd)) {
             // Inform the user about the environment variable change
-            void vscode.window.showWarningMessage('Failed to resolve niosv-stack-report utility path, $QUARTUS_ROOTDIR../niosv/bin does not exist.');
+            void vscode.window.showInformationMessage('Failed to resolve niosv-stack-report utility path, $QUARTUS_ROOTDIR../niosv/bin does not exist.');
             //Let's continue with a warning
         } else {
             // Modify the PATH environment variable
@@ -2156,11 +2156,18 @@ async function updateEnvironment() {
             armToolchainPath,
             armLinuxToolchainPath
         ];
+        const pathsToVerify = [{'name': 'make', 'path': makePath},
+            {'name': 'cmake', 'path': cmakePath},
+            {'name': 'riscv-toolchain', 'path': riscvToolchainPath},
+            {'name': 'arm-toolchain', 'path': armToolchainPath},
+            {'name': 'arm-linux-toolchain', 'path': armLinuxToolchainPath}];
 
-        if (!checkPaths(pathsToAdd)) {
+        for (const path of pathsToVerify) {
+            if (!checkPaths([path.path])) {
             // Inform the user about the environment variable change
-            void vscode.window.showInformationMessage('Failed to add toolchain & debugger path to PATH environment variable. Some of the paths are missing.');
-            return;
+                void vscode.window.showInformationMessage(`Failed to add ${path.name} path to PATH environment variable. ${path.path} does not exist.`);
+            //Let's continue with a warning
+            }
         }
         // Modify the PATH environment variable
         process.env.PATH = process.env.PATH + getPathSeparator() + pathsToAdd.join(getPathSeparator());
