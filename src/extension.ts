@@ -2170,7 +2170,7 @@ async function updateEnvironment() {
             }
         }
         // Modify the PATH environment variable
-        process.env.PATH = process.env.PATH + getPathSeparator() + pathsToAdd.join(getPathSeparator());
+        process.env.PATH = pathsToAdd.join(getPathSeparator())+ getPathSeparator() + process.env.PATH;
     } catch (error: any) {
         log.error('Error:', error);
     }
